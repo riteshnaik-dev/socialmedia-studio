@@ -11,63 +11,25 @@
     <nav class="sidebar">
       <div class="brand">Social Media Studio</div>
       <a href="#board">Content Board</a>
+      <a href="#editor">Editor</a>
       <a href="#ideas">Ideas</a>
       <a href="#swipes">Swipe Library</a>
       <a href="#writer">Writer</a>
       <a href="#calendar">Calendar</a>
       <a href="#analytics">Analytics</a>
-      <form method="post" action="/logout">
-        <button type="submit">Sign Out</button>
-      </form>
+      <div class="sidebar-bottom">
+        <a href="#import">Import Posts</a>
+        <form method="post" action="/logout">
+          <button type="submit">Sign Out</button>
+        </form>
+      </div>
     </nav>
 
     <main id="content"></main>
   </div>
 
-  <!-- Post editor, used for both new and existing posts -->
-  <dialog id="editor">
-    <form id="editor-form" method="dialog">
-      <h2 id="editor-heading">New Post</h2>
-
-      <label>Title
-        <input name="title" required maxlength="200" placeholder="A short name for this post" />
-      </label>
-
-      <div class="row">
-        <label>Platform
-          <select name="platform">
-            <option value="LinkedIn">LinkedIn</option>
-            <option value="X">X</option>
-          </select>
-        </label>
-        <label>Status
-          <select name="status">
-            <option>Idea</option>
-            <option>Draft</option>
-            <option>Scheduled</option>
-            <option>Published</option>
-          </select>
-        </label>
-        <label>Scheduled For
-          <input name="scheduledFor" type="datetime-local" />
-        </label>
-      </div>
-
-      <label>Text
-        <textarea name="text" rows="10" placeholder="The post itself"></textarea>
-      </label>
-      <div class="counter" id="counter"></div>
-
-      <p class="error" id="editor-error" hidden></p>
-
-      <div class="actions">
-        <a id="notion-link" href="#" target="_blank" rel="noopener" hidden>Open in Notion</a>
-        <button type="button" class="secondary" id="cancel">Cancel</button>
-        <button type="submit" id="save">Save</button>
-      </div>
-    </form>
-  </dialog>
-
+  <script src="/textkit.js"></script>
+  <script src="/library.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

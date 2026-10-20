@@ -3,7 +3,11 @@
 
 import express from "express";
 import crypto from "node:crypto";
-import { listPosts, createPost, updatePost, STATUSES, PLATFORMS } from "./notion.js";
+import {
+  listPosts, createPost, updatePost, importPosts,
+  listSnippets, createSnippet, markSnippetUsed, trashSnippet,
+  STATUSES, PLATFORMS, POST_TYPES, STAT_FIELDS,
+} from "./notion.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,7 +23,7 @@ const COOKIE_NAME = "studio_session";
 const SESSION_DAYS = 30;
 
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+app.use(express.json({ limit: "2mb" })); // room for a one-time import of past posts
 
 // ---------- Sign-in cookie helpers ----------
 // The cookie holds an expiry time plus a signature made with SESSION_SECRET,
@@ -148,9 +152,69 @@ app.post("/api/posts", notionRoute(async (req, res) => {
   res.status(201).json(await createPost(cleanPost(req.body, { isNew: true })));
 }));
 
+const isNotionId = (id) => /^[0-9a-f-]{32,36}$/i.test(id);
+
 app.patch("/api/posts/:id", notionRoute(async (req, res) => {
-  if (!/^[0-9a-f-]{32,36}$/i.test(req.params.id)) throw new Error("Invalid post ID.");
+  if (!isNotionId(req.params.id)) throw new Error("Invalid post ID.");
   res.json(await updatePost(req.params.id, cleanPost(req.body, { isNew: false })));
+}));
+
+// One-time import of past posts with their stats (for example, a LinkedIn history export).
+// Posts already in Notion (same post link) are skipped, so running it twice is safe.
+app.post("/api/posts/import", notionRoute(async (req, res) => {
+  const rows = Array.isArray(req.body?.posts) ? req.body.posts : [];
+  if (!rows.length || rows.length > 500) throw new Error("Send between 1 and 500 posts.");
+  const posts = rows.map((row) => {
+    const post = cleanPost({ ...row, status: row.status || "Published" }, { isNew: true });
+    if (row.postType) {
+      if (!POST_TYPES.includes(row.postType)) throw new Error(`Unknown post type: ${row.postType}`);
+      post.postType = row.postType;
+    }
+    if (row.postUrl) {
+      const url = new URL(row.postUrl);
+      if (!["https:", "http:"].includes(url.protocol)) throw new Error("Invalid post link.");
+      post.postUrl = url.href;
+    }
+    if (row.publishedAt) {
+      if (Number.isNaN(Date.parse(row.publishedAt))) throw new Error("Invalid publish date.");
+      post.publishedAt = row.publishedAt;
+    }
+    if (row.stats) {
+      post.stats = {};
+      for (const field of Object.keys(STAT_FIELDS)) {
+        const value = row.stats[field];
+        if (value === null || value === undefined) continue;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`Invalid ${field}.`);
+        post.stats[field] = value;
+      }
+    }
+    return post;
+  });
+  res.json(await importPosts(posts));
+}));
+
+// ---------- Snippets (stored in Notion) ----------
+
+app.get("/api/snippets", notionRoute(async (req, res) => {
+  res.json(await listSnippets());
+}));
+
+app.post("/api/snippets", notionRoute(async (req, res) => {
+  const text = String(req.body.text ?? "").slice(0, 3000);
+  const name = String(req.body.name ?? "").trim().slice(0, 100) || text.split("\n")[0].slice(0, 60);
+  if (!text.trim()) throw new Error("Select some text first.");
+  res.status(201).json(await createSnippet({ name, text }));
+}));
+
+app.post("/api/snippets/:id/used", notionRoute(async (req, res) => {
+  if (!isNotionId(req.params.id)) throw new Error("Invalid snippet ID.");
+  res.json(await markSnippetUsed(req.params.id));
+}));
+
+app.delete("/api/snippets/:id", notionRoute(async (req, res) => {
+  if (!isNotionId(req.params.id)) throw new Error("Invalid snippet ID.");
+  await trashSnippet(req.params.id);
+  res.json({ ok: true });
 }));
 
 app.use(express.static("public"));

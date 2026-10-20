@@ -21,5 +21,11 @@ Built with Node.js and Express. Hosted on Spaceship (cPanel, Setup Node.js App) 
 
 ## Data
 
-Posts live in the **Posts** database on the **Social Media Studio** page in Notion.
+Posts live in the **Posts** database and reusable text in the **Snippets** database, both on the **Social Media Studio** page in Notion.
 The Notion connection only has access to that page.
+
+## Editor
+
+- Formatting uses Unicode letters (bold, italic, code), combining marks (underline, strikethrough), lists and four staircase layouts. All of it survives copy and paste into LinkedIn or X.
+- Hooks and endings live in `public/library.js`: original templates with [placeholders], tags and three examples each. Edit that file to add your own.
+- Import Posts (sidebar) loads past posts with stats from JSON; posts with a link already in Notion are skipped.
