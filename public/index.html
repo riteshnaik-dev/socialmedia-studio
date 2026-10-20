@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Social Media Studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">Social Media Studio</div>
+      <a href="#board">Content Board</a>
+      <a href="#ideas">Ideas</a>
+      <a href="#swipes">Swipe Library</a>
+      <a href="#writer">Writer</a>
+      <a href="#calendar">Calendar</a>
+      <a href="#analytics">Analytics</a>
+      <form method="post" action="/logout">
+        <button type="submit">Sign Out</button>
+      </form>
+    </nav>
+
+    <main id="content"></main>
+  </div>
+
+  <script>
+    // Each section of the app. The descriptions are placeholders until that step is built.
+    const sections = {
+      board:     { title: "Content Board", text: "Every post moving through Idea, Draft, Scheduled and Published, for LinkedIn and X." },
+      ideas:     { title: "Ideas",         text: "Your idea inbox." },
+      swipes:    { title: "Swipe Library", text: "Posts you've saved because you like them." },
+      writer:    { title: "Writer",        text: "Drafts LinkedIn and X versions of an idea in your voice." },
+      calendar:  { title: "Calendar",      text: "What's going out, and when." },
+      analytics: { title: "Analytics",     text: "How each post performed." },
+    };
+
+    function show() {
+      const key = location.hash.slice(1) || "board";
+      const section = sections[key] || sections.board;
+      document.getElementById("content").innerHTML =
+        `<h1>${section.title}</h1><p class="muted">${section.text} Not built yet.</p>`;
+      document.querySelectorAll(".sidebar a").forEach((link) => {
+        link.classList.toggle("active", link.getAttribute("href") === "#" + key);
+      });
+    }
+
+    window.addEventListener("hashchange", show);
+    show();
+  </script>
+</body>
+</html>
