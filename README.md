@@ -2,7 +2,7 @@
 
 A personal web app for planning, writing, scheduling and publishing posts to LinkedIn and X.
 
-Built with Node.js and Express. Hosted on Spaceship (cPanel, Setup Node.js App).
+Built with Node.js and Express. Hosted on Spaceship (cPanel, Setup Node.js App) at https://studio.zeh.ai, with `app.cjs` as the startup file.
 
 ## Run it on your own computer
 
