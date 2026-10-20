@@ -511,6 +511,151 @@ async function showEditor(id) {
   textarea.focus();
 }
 
+// ---------- AI Writer ----------
+
+const writerState = (() => {
+  try { return JSON.parse(sessionStorage.getItem("writerState")) || {}; } catch { return {}; }
+})();
+function rememberWriter() {
+  try { sessionStorage.setItem("writerState", JSON.stringify(writerState)); } catch {}
+}
+
+async function showWriter() {
+  const purposes = { "": "Let the Writer decide", view: "Sharing a view", "how-to": "Teaching how to do something", built: "Sharing something built", story: "Telling a story", milestone: "A milestone, framed around an insight" };
+  const form = writerState.form || { idea: "", purpose: "", facts: "", platforms: ["LinkedIn", "X"] };
+  content.innerHTML = `
+    <h1>Writer</h1>
+    <p class="muted" id="w-status">Drafts LinkedIn and X posts in your voice, using your Persona Guide, your best-performing posts and the hooks library.</p>
+    <div class="writer">
+      <section class="writer-form">
+        <label>Idea
+          <textarea id="w-idea" rows="5" placeholder="What's the post about? A sentence or a rough paragraph is enough.">${escapeHtml(form.idea)}</textarea>
+        </label>
+        <label>Purpose
+          <select id="w-purpose">${Object.entries(purposes).map(([k, v]) => `<option value="${k}" ${k === form.purpose ? "selected" : ""}>${v}</option>`).join("")}</select>
+        </label>
+        <label>Facts to use
+          <textarea id="w-facts" rows="4" placeholder="Numbers, names, results, links. Anything not here becomes a [fact needed] placeholder, never a made-up fact.">${escapeHtml(form.facts)}</textarea>
+        </label>
+        <div class="checks-row">
+          ${["LinkedIn", "X"].map((p) => `<label class="check"><input type="checkbox" value="${p}" ${form.platforms.includes(p) ? "checked" : ""} /> ${p}</label>`).join("")}
+        </div>
+        <button type="button" id="w-go">Write drafts</button>
+        <p class="error" id="w-error" hidden></p>
+      </section>
+      <section id="w-result"></section>
+    </div>`;
+
+  const $ = (sel) => content.querySelector(sel);
+  api("GET", "/api/writer/status").then((s) => {
+    if (!s.connected) {
+      $("#w-status").innerHTML = `<span class="error">The Writer isn't connected yet.</span> Add <code>ANTHROPIC_API_KEY</code> in cPanel (Node.js app &rarr; Environment variables), then Save and Restart.`;
+    }
+  }).catch(() => {});
+
+  const readForm = () => ({
+    idea: $("#w-idea").value,
+    purpose: $("#w-purpose").value,
+    facts: $("#w-facts").value,
+    platforms: [...content.querySelectorAll(".check input:checked")].map((i) => i.value),
+  });
+  content.querySelectorAll("#w-idea, #w-facts, #w-purpose, .check input").forEach((el) =>
+    el.addEventListener("input", () => { writerState.form = readForm(); rememberWriter(); }));
+
+  if (writerState.result) renderWriterResult(writerState.result);
+
+  $("#w-go").addEventListener("click", async () => {
+    const f = readForm();
+    writerState.form = f;
+    rememberWriter();
+    const errorBox = $("#w-error");
+    errorBox.hidden = true;
+    if (!f.idea.trim()) { errorBox.textContent = "Write the idea first."; errorBox.hidden = false; return; }
+    if (!f.platforms.length) { errorBox.textContent = "Pick LinkedIn, X, or both."; errorBox.hidden = false; return; }
+    const hooks = LIBRARY.hooks.filter((h) => !f.purpose || h.tags[0] === f.purpose).slice(0, 15).map((h) => h.template);
+    const button = $("#w-go");
+    button.disabled = true;
+    button.textContent = "Writing... (about 30 to 60 seconds)";
+    $("#w-result").innerHTML = "";
+    try {
+      const result = await api("POST", "/api/writer/draft", { ...f, hooks });
+      result.platforms = f.platforms;
+      writerState.result = result;
+      rememberWriter();
+      renderWriterResult(result);
+    } catch (error) {
+      errorBox.textContent = error.message;
+      errorBox.hidden = false;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Write drafts";
+    }
+  });
+}
+
+function renderWriterResult(r) {
+  const box = document.getElementById("w-result");
+  if (!box) return;
+  const xLen = [...(r.x || "")].length;
+  box.innerHTML = `
+    ${r.linkedin ? `
+    <div class="draft-card">
+      <div class="draft-head"><span class="badge li">LinkedIn</span><span class="muted">${[...r.linkedin].length.toLocaleString()} / 3,000 characters</span></div>
+      <div class="draft-text" id="w-li">${escapeHtml(r.linkedin)}</div>
+      ${r.alternateHooks?.length ? `<div class="alt-hooks"><strong>Alternate hooks</strong>${r.alternateHooks.map((h, i) => `
+        <div class="alt"><span>${escapeHtml(h)}</span><button type="button" class="secondary small" data-alt="${i}">Use this hook</button></div>`).join("")}</div>` : ""}
+      <button type="button" data-save="LinkedIn">Save as draft and open in Editor</button>
+    </div>` : ""}
+    ${r.x ? `
+    <div class="draft-card">
+      <div class="draft-head"><span class="badge x">X</span><span class="${xLen > 280 ? "error" : "muted"}">${xLen} / 280 characters</span></div>
+      <div class="draft-text">${escapeHtml(r.x)}</div>
+      ${r.xNote ? `<p class="hint">${escapeHtml(r.xNote)}</p>` : ""}
+      <button type="button" data-save="X">Save as draft and open in Editor</button>
+    </div>` : ""}
+    <div class="draft-card notes">
+      <strong>Facts to verify</strong>
+      ${r.factsToVerify?.length ? `<ul>${r.factsToVerify.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
+      <strong>Checks</strong>
+      <p class="muted">${escapeHtml(r.checks || "")}</p>
+      ${r.platforms?.length > 1 && r.linkedin && r.x ? `<button type="button" class="secondary" data-save="both">Save both as drafts</button>` : ""}
+    </div>`;
+
+  // Swap the LinkedIn opening (everything before the first blank line) for an alternate hook
+  box.querySelectorAll("[data-alt]").forEach((b) => b.addEventListener("click", () => {
+    const alt = r.alternateHooks[Number(b.dataset.alt)];
+    const rest = r.linkedin.includes("\n\n") ? r.linkedin.slice(r.linkedin.indexOf("\n\n")) : "";
+    r.alternateHooks[Number(b.dataset.alt)] = r.linkedin.split("\n\n")[0];
+    r.linkedin = alt + rest;
+    rememberWriter();
+    renderWriterResult(r);
+  }));
+
+  const saveDraft = (platform) => api("POST", "/api/posts", {
+    title: platform === "X" ? `${r.title} (X)` : r.title,
+    platform, status: "Draft", text: platform === "X" ? r.x : r.linkedin,
+  });
+
+  box.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    b.textContent = "Saving...";
+    try {
+      if (b.dataset.save === "both") {
+        const [li] = await Promise.all([saveDraft("LinkedIn"), saveDraft("X")]);
+        posts = null;
+        location.hash = `#editor/${li.id}`;
+      } else {
+        const saved = await saveDraft(b.dataset.save);
+        posts = null;
+        location.hash = `#editor/${saved.id}`;
+      }
+    } catch (error) {
+      b.disabled = false;
+      b.textContent = error.message;
+    }
+  }));
+}
+
 // ---------- Import (one-time loading of past posts) ----------
 
 function showImport() {
@@ -545,7 +690,6 @@ function showImport() {
 const placeholders = {
   ideas:     { title: "Ideas",         text: "Your idea inbox." },
   swipes:    { title: "Swipe Library", text: "Posts you've saved because you like them." },
-  writer:    { title: "Writer",        text: "Drafts LinkedIn and X versions of an idea in your voice." },
   calendar:  { title: "Calendar",      text: "What's going out, and when." },
   analytics: { title: "Analytics",     text: "How each post performed." },
 };
@@ -560,6 +704,7 @@ function show() {
   });
   if (section === "editor") return showEditor(id);
   if (section === "import") return showImport();
+  if (section === "writer") return showWriter();
   if (placeholders[section]) {
     content.innerHTML = `<h1>${placeholders[section].title}</h1><p class="muted">${placeholders[section].text} Not built yet.</p>`;
     return;

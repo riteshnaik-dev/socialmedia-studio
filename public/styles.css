@@ -60,6 +60,10 @@ button {
 .sidebar {
   width: 220px;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
   background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 20px 12px;
@@ -112,7 +116,7 @@ button.small { padding: 6px 10px; font-size: 13px; }
 /* Phones: sidebar becomes a top bar */
 @media (max-width: 700px) {
   .layout { flex-direction: column; }
-  .sidebar { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar { position: static; height: auto; width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   .sidebar .brand { width: 100%; }
   .sidebar-bottom { margin-top: 0; display: flex; }
   main { padding: 24px 16px; }
@@ -389,3 +393,26 @@ details summary { cursor: pointer; font-size: 13px; color: var(--accent); margin
   .editor-body { grid-template-columns: 1fr; }
   .side { position: static; max-height: none; }
 }
+
+/* ---------- Writer ---------- */
+
+.writer { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.writer-form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.writer-form label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 14px; }
+.writer-form textarea, .writer-form select {
+  display: block; width: 100%; margin-top: 6px; padding: 9px; font: inherit; font-weight: 400;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); resize: vertical;
+}
+.checks-row { display: flex; gap: 18px; margin-bottom: 14px; }
+.writer-form label.check { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: 400; }
+.writer-form #w-go { width: 100%; }
+.draft-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.draft-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.draft-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-bottom: 14px; }
+.alt-hooks { border-top: 1px solid var(--line); padding-top: 10px; margin-bottom: 14px; font-size: 14px; }
+.alt { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 8px; }
+.alt span { white-space: pre-wrap; }
+.alt button { flex-shrink: 0; }
+.notes ul { margin: 6px 0 12px; padding-left: 20px; }
+code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 1000px) { .writer { grid-template-columns: 1fr; } }

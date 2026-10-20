@@ -8,6 +8,7 @@ import {
   listSnippets, createSnippet, markSnippetUsed, trashSnippet,
   STATUSES, PLATFORMS, POST_TYPES, STAT_FIELDS,
 } from "./notion.js";
+import { draftPost, PURPOSES } from "./writer.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -192,6 +193,33 @@ app.post("/api/posts/import", notionRoute(async (req, res) => {
   });
   res.json(await importPosts(posts));
 }));
+
+// ---------- AI Writer ----------
+
+app.get("/api/writer/status", (req, res) => {
+  res.json({ connected: Boolean(process.env.ANTHROPIC_API_KEY), purposes: PURPOSES });
+});
+
+app.post("/api/writer/draft", async (req, res) => {
+  const idea = String(req.body.idea ?? "").trim().slice(0, 4000);
+  const facts = String(req.body.facts ?? "").slice(0, 4000);
+  const purpose = Object.hasOwn(PURPOSES, req.body.purpose) ? req.body.purpose : "";
+  const platforms = (Array.isArray(req.body.platforms) ? req.body.platforms : []).filter((p) => PLATFORMS.includes(p));
+  const hooks = (Array.isArray(req.body.hooks) ? req.body.hooks : []).map((h) => String(h).slice(0, 300)).slice(0, 15);
+  if (!idea) return res.status(400).json({ error: "Write the idea first." });
+  if (!platforms.length) return res.status(400).json({ error: "Pick LinkedIn, X, or both." });
+
+  // Real posts give the Writer your rhythm; if Notion isn't reachable it still works without them.
+  let posts = [];
+  if (process.env.NOTION_TOKEN) posts = await listPosts().catch(() => []);
+
+  try {
+    res.json(await draftPost({ idea, facts, purpose, platforms, hooks, posts }));
+  } catch (error) {
+    console.error("Writer error:", error.status || "", error.message);
+    res.status(error.code === "no_key" ? 503 : 502).json({ error: error.message });
+  }
+});
 
 // ---------- Snippets (stored in Notion) ----------
 
