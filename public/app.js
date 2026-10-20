@@ -724,4 +724,24 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("beforeunload", (e) => {
   if (leaveGuard) e.preventDefault();
 });
+
+// Keeps the board current with edits made in Notion: refresh quietly when you come back
+// to this tab, and when you click Content Board while already on it.
+let lastRefresh = 0;
+async function refreshBoard() {
+  if (!document.getElementById("board") || Date.now() - lastRefresh < 3000) return;
+  lastRefresh = Date.now();
+  try {
+    await loadPosts(true);
+    renderColumns();
+  } catch { /* keep showing what we have */ }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshBoard();
+});
+window.addEventListener("focus", refreshBoard);
+document.querySelectorAll('.sidebar a[href="#board"]').forEach((link) =>
+  link.addEventListener("click", () => {
+    if ((location.hash || "#board") === "#board") { lastRefresh = 0; refreshBoard(); }
+  }));
 show();
