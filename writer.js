@@ -38,24 +38,22 @@ X: a very short observation (under 280 characters) on the same idea, written for
 
 You may use one of the provided hook templates, adapted, if it fits. Never copy example posts; they show his rhythm and what has performed well for him.
 
-Submit your work with the submit_drafts tool.`;
+Return your work as JSON matching the required schema.`;
 
-const TOOL = {
-  name: "submit_drafts",
-  description: "Submit the finished drafts.",
-  input_schema: {
-    type: "object",
-    properties: {
-      title: { type: "string", description: "A short internal title for the post (max 80 characters)." },
-      linkedin: { type: "string", description: "The LinkedIn post, exactly as it would be published. Empty string if LinkedIn was not requested." },
-      alternate_hooks: { type: "array", items: { type: "string" }, description: "Two alternate openings for the LinkedIn post (first 1 to 3 lines only)." },
-      x: { type: "string", description: "The X post, under 280 characters. Empty string if X was not requested." },
-      x_note: { type: "string", description: "Optional note about the X version, or empty string." },
-      facts_to_verify: { type: "array", items: { type: "string" }, description: "Every placeholder or assumption that Ritesh must confirm. Empty if none." },
-      checks: { type: "string", description: "One or two lines: purpose and authority level used, and checklist result (passed, or the exceptions)." },
-    },
-    required: ["title", "linkedin", "alternate_hooks", "x", "x_note", "facts_to_verify", "checks"],
+// The shape Claude must return (Claude API "structured outputs").
+const OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string", description: "A short internal title for the post (max 80 characters)." },
+    linkedin: { type: "string", description: "The LinkedIn post, exactly as it would be published. Empty string if LinkedIn was not requested." },
+    alternate_hooks: { type: "array", items: { type: "string" }, description: "Two alternate openings for the LinkedIn post (first 1 to 3 lines only)." },
+    x: { type: "string", description: "The X post, under 280 characters. Empty string if X was not requested." },
+    x_note: { type: "string", description: "Optional note about the X version, or empty string." },
+    facts_to_verify: { type: "array", items: { type: "string" }, description: "Every placeholder or assumption that Ritesh must confirm. Empty if none." },
+    checks: { type: "string", description: "One or two lines: purpose and authority level used, and checklist result (passed, or the exceptions)." },
   },
+  required: ["title", "linkedin", "alternate_hooks", "x", "x_note", "facts_to_verify", "checks"],
 };
 
 // Picks real posts to show as style examples: the strongest by engagement rate and by reach.
@@ -90,8 +88,7 @@ export function buildRequest({ idea, purpose, facts, platforms, hooks, posts }) 
       { type: "text", text: personaGuide(), cache_control: { type: "ephemeral" } },
       { type: "text", text: INSTRUCTIONS },
     ],
-    tools: [TOOL],
-    tool_choice: { type: "tool", name: "submit_drafts" },
+    output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
     messages: [{ role: "user", content: parts.join("\n\n") }],
   };
 }
@@ -126,9 +123,15 @@ export async function draftPost(input) {
     error.status = response.status;
     throw error;
   }
-  const call = data.content?.find((block) => block.type === "tool_use" && block.name === "submit_drafts");
-  if (!call) throw new Error("The Writer didn't return a draft. Try again.");
-  const out = call.input;
+  if (data.stop_reason === "refusal") throw new Error("Claude declined to write this one. Try rewording the idea.");
+  if (data.stop_reason === "max_tokens") throw new Error("The draft ran too long and was cut off. Try again, or narrow the idea.");
+  const block = data.content?.find((b) => b.type === "text");
+  let out;
+  try {
+    out = JSON.parse(block?.text ?? "");
+  } catch {
+    throw new Error("The Writer returned something unreadable. Try again.");
+  }
   return {
     title: stripEmDashes(out.title).slice(0, 90),
     linkedin: stripEmDashes(out.linkedin),
