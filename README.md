@@ -17,3 +17,9 @@ Built with Node.js and Express. Hosted on Spaceship (cPanel, Setup Node.js App) 
 | --- | --- |
 | `APP_PASSWORD` | The password used to sign in |
 | `SESSION_SECRET` | A long random string that secures the sign-in cookie |
+| `NOTION_TOKEN` | API token of the "Social Media Studio" Notion connection |
+
+## Data
+
+Posts live in the **Posts** database on the **Social Media Studio** page in Notion.
+The Notion connection only has access to that page.

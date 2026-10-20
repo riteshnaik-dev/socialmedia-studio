@@ -3,6 +3,7 @@
 
 import express from "express";
 import crypto from "node:crypto";
+import { listPosts, createPost, updatePost, STATUSES, PLATFORMS } from "./notion.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,8 +98,60 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+  res.json({ ok: true, notionConnected: Boolean(process.env.NOTION_TOKEN), time: new Date().toISOString() });
 });
+
+// ---------- Posts (stored in Notion) ----------
+
+// Checks a post sent from the browser and keeps only the fields the app understands.
+function cleanPost(body, { isNew }) {
+  const post = {};
+  if (body.title !== undefined) post.title = String(body.title).trim().slice(0, 200);
+  if (body.text !== undefined) post.text = String(body.text).slice(0, 25000);
+  if (body.platform !== undefined) {
+    if (body.platform && !PLATFORMS.includes(body.platform)) throw new Error("Platform must be LinkedIn or X.");
+    post.platform = body.platform || null;
+  }
+  if (body.status !== undefined) {
+    if (!STATUSES.includes(body.status)) throw new Error("Unknown status.");
+    post.status = body.status;
+  }
+  if (body.scheduledFor !== undefined) {
+    if (body.scheduledFor && Number.isNaN(Date.parse(body.scheduledFor))) throw new Error("Invalid date.");
+    post.scheduledFor = body.scheduledFor || null;
+  }
+  if (isNew && !post.title) throw new Error("Give the post a title.");
+  return post;
+}
+
+// Wraps a route so Notion problems come back as a clear message instead of crashing.
+const notionRoute = (handler) => async (req, res) => {
+  if (!process.env.NOTION_TOKEN) {
+    return res.status(503).json({ error: "Notion isn't connected yet. Add NOTION_TOKEN in cPanel." });
+  }
+  try {
+    await handler(req, res);
+  } catch (error) {
+    if (error.status) {
+      console.error("Notion error:", error.status, error.message);
+      return res.status(502).json({ error: `Notion said: ${error.message}` });
+    }
+    res.status(400).json({ error: error.message });
+  }
+};
+
+app.get("/api/posts", notionRoute(async (req, res) => {
+  res.json(await listPosts());
+}));
+
+app.post("/api/posts", notionRoute(async (req, res) => {
+  res.status(201).json(await createPost(cleanPost(req.body, { isNew: true })));
+}));
+
+app.patch("/api/posts/:id", notionRoute(async (req, res) => {
+  if (!/^[0-9a-f-]{32,36}$/i.test(req.params.id)) throw new Error("Invalid post ID.");
+  res.json(await updatePost(req.params.id, cleanPost(req.body, { isNew: false })));
+}));
 
 app.use(express.static("public"));
 
