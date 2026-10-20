@@ -416,3 +416,24 @@ details summary { cursor: pointer; font-size: 13px; color: var(--accent); margin
 .notes ul { margin: 6px 0 12px; padding-left: 20px; }
 code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 @media (max-width: 1000px) { .writer { grid-template-columns: 1fr; } }
+
+/* ---------- Ideas ---------- */
+.badge.none { background: #efe9f7; color: #5b3d8a; }
+.idea-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0 16px; }
+.idea-form label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 14px; }
+.idea-form label.grow { flex: 1; min-width: 240px; }
+.idea-form select, .idea-form input { padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-weight: 400; background: var(--panel); color: var(--text); }
+.idea-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-bottom: 32px; }
+.idea-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.idea-card h3 { margin: 0; font-size: 17px; }
+.idea-card p { margin: 0; line-height: 1.45; }
+.idea-card blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--bg); white-space: pre-wrap; border-radius: 0 6px 6px 0; }
+.idea-card .small { font-size: 13px; }
+.idea-card .bring { font-size: 14px; }
+.idea-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); }
+.chip.soft { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.idea-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
+button.ghost { background: none; color: var(--muted); border: 1px solid var(--line); }
+a.button.secondary { background: var(--panel); color: var(--accent); border: 1px solid var(--line); padding: 9px 14px; }
+.idea-actions button, .idea-actions a.button { padding: 7px 12px; font-size: 14px; }

@@ -8,7 +8,7 @@ import {
   listSnippets, createSnippet, markSnippetUsed, trashSnippet,
   STATUSES, PLATFORMS, POST_TYPES, STAT_FIELDS,
 } from "./notion.js";
-import { draftPost, PURPOSES } from "./writer.js";
+import { draftPost, generateIdeas, contentPillars, PURPOSES } from "./writer.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -217,6 +217,29 @@ app.post("/api/writer/draft", async (req, res) => {
     res.json(await draftPost({ idea, facts, purpose, platforms, hooks, posts }));
   } catch (error) {
     console.error("Writer error:", error.status || "", error.message);
+    res.status(error.code === "no_key" ? 503 : 502).json({ error: error.message });
+  }
+});
+
+// ---------- Idea generator ----------
+
+app.get("/api/ideas/pillars", (req, res) => {
+  res.json({ pillars: contentPillars(), purposes: PURPOSES, connected: Boolean(process.env.ANTHROPIC_API_KEY) });
+});
+
+app.post("/api/ideas/generate", async (req, res) => {
+  const pillars = contentPillars();
+  const pillar = pillars.includes(req.body.pillar) ? req.body.pillar : "";
+  const nudge = String(req.body.nudge ?? "").trim().slice(0, 1000);
+  const count = Math.min(Math.max(Number.parseInt(req.body.count, 10) || 8, 3), 12);
+
+  let posts = [];
+  if (process.env.NOTION_TOKEN) posts = await listPosts().catch(() => []);
+
+  try {
+    res.json(await generateIdeas({ pillar, nudge, count, posts }));
+  } catch (error) {
+    console.error("Ideas error:", error.status || "", error.message);
     res.status(error.code === "no_key" ? 503 : 502).json({ error: error.message });
   }
 });

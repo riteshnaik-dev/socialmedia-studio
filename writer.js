@@ -101,7 +101,8 @@ function stripEmDashes(text) {
     .replace(/\.\s*\./g, ".");
 }
 
-export async function draftPost(input) {
+// Sends one request to Claude and returns the parsed JSON answer plus usage details.
+async function callClaude(body) {
   if (!process.env.ANTHROPIC_API_KEY) {
     const error = new Error("The Writer isn't connected yet. Add ANTHROPIC_API_KEY in cPanel.");
     error.code = "no_key";
@@ -114,7 +115,7 @@ export async function draftPost(input) {
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify(buildRequest(input)),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(150000),
   });
   const data = await response.json().catch(() => ({}));
@@ -123,15 +124,18 @@ export async function draftPost(input) {
     error.status = response.status;
     throw error;
   }
-  if (data.stop_reason === "refusal") throw new Error("Claude declined to write this one. Try rewording the idea.");
-  if (data.stop_reason === "max_tokens") throw new Error("The draft ran too long and was cut off. Try again, or narrow the idea.");
+  if (data.stop_reason === "refusal") throw new Error("Claude declined this one. Try rewording it.");
+  if (data.stop_reason === "max_tokens") throw new Error("The answer ran too long and was cut off. Try again.");
   const block = data.content?.find((b) => b.type === "text");
-  let out;
   try {
-    out = JSON.parse(block?.text ?? "");
+    return { out: JSON.parse(block?.text ?? ""), data };
   } catch {
-    throw new Error("The Writer returned something unreadable. Try again.");
+    throw new Error("Claude returned something unreadable. Try again.");
   }
+}
+
+export async function draftPost(input) {
+  const { out, data } = await callClaude(buildRequest(input));
   return {
     title: stripEmDashes(out.title).slice(0, 90),
     linkedin: stripEmDashes(out.linkedin),
@@ -142,5 +146,97 @@ export async function draftPost(input) {
     checks: stripEmDashes(out.checks),
     usage: data.usage || null,
     model: data.model || MODEL,
+  };
+}
+
+// ---------- Idea generator ----------
+
+// The content pillars, read straight from Section 10 of the Persona Guide so they stay in sync.
+export function contentPillars() {
+  const section = personaGuide().split(/^## 10\./m)[1]?.split(/^## /m)[0] ?? "";
+  const pillars = [...section.matchAll(/^\d+\.\s+\*\*(.+?)\*\*/gm)].map((m) => m[1].replace(/\.$/, ""));
+  return pillars.length ? pillars : ["AI in finance", "Judgment over information", "Finance data and systems", "Career and learning"];
+}
+
+const IDEA_INSTRUCTIONS = `You are the idea engine inside Ritesh Naik's personal content app. He opens it when he needs inspiration.
+
+The Persona Guide above is the source of truth for who he is, what he writes about, his point of view, his boundaries and his authority levels.
+
+Suggest post ideas he could genuinely write. Rules:
+- Each idea must come from his real territory: his experience, beliefs and point of view in the Guide. Prefer specific, opinionated angles over generic topics.
+- Never invent events, numbers, results or stories about him. If an idea needs a real example or number from him, say what he should bring in "bring".
+- Respect Section 25 boundaries and Section 24 authority levels. Do not suggest leadership-authority posts.
+- Do not repeat or lightly reword his recent posts or saved ideas listed in the request. Look for fresh angles, including follow-ups to what performed well.
+- Mix the purposes across the set (view, how-to, built, story, milestone) unless the request focuses on one.
+- The opening is the first one to three lines of the post as he might write it. It must work before LinkedIn's "...more" cut. No em dashes anywhere.
+
+Return your work as JSON matching the required schema.`;
+
+function ideasSchema(pillars) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      ideas: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string", description: "Short working title (max 70 characters)." },
+            pillar: { type: "string", enum: pillars },
+            purpose: { type: "string", enum: Object.keys(PURPOSES) },
+            angle: { type: "string", description: "One or two sentences: the point the post makes." },
+            opening: { type: "string", description: "The first one to three lines of the post." },
+            why: { type: "string", description: "One sentence on why this fits him or his audience now." },
+            bring: { type: "string", description: "The real detail, example or number he needs to supply. Empty if none." },
+          },
+          required: ["title", "pillar", "purpose", "angle", "opening", "why", "bring"],
+        },
+      },
+    },
+    required: ["ideas"],
+  };
+}
+
+function recentContext(posts) {
+  const published = posts.filter((p) => p.status === "Published" && p.text).slice(0, 30);
+  const recent = published.map((p) => `- ${p.publishedAt?.slice(0, 10) ?? ""}: ${p.text.split("\n").find((l) => l.trim())?.slice(0, 140) ?? p.title}`).join("\n");
+  const pending = posts.filter((p) => p.status !== "Published").slice(0, 40).map((p) => `- ${p.title}`).join("\n");
+  return { recent, pending, examples: examplePosts(posts) };
+}
+
+export function buildIdeasRequest({ pillar, nudge, count, posts }) {
+  const pillars = contentPillars();
+  const { recent, pending, examples } = recentContext(posts);
+  const parts = [
+    `Suggest ${count} post ideas.`,
+    pillar ? `FOCUS PILLAR: ${pillar}` : `PILLARS: spread the ideas across: ${pillars.join("; ")}`,
+    nudge ? `HIS NUDGE FOR TODAY:\n${nudge}` : "",
+    recent ? `HIS RECENT PUBLISHED POSTS (opening lines; don't repeat these):\n${recent}` : "",
+    pending ? `IDEAS AND DRAFTS ALREADY IN HIS PIPELINE (don't repeat these):\n${pending}` : "",
+    examples ? `HIS BEST-PERFORMING POSTS (what resonates with his audience):\n\n${examples}` : "",
+  ].filter(Boolean);
+  return {
+    model: MODEL,
+    max_tokens: 6000,
+    system: [
+      { type: "text", text: personaGuide(), cache_control: { type: "ephemeral" } },
+      { type: "text", text: IDEA_INSTRUCTIONS },
+    ],
+    output_config: { format: { type: "json_schema", schema: ideasSchema(pillars) } },
+    messages: [{ role: "user", content: parts.join("\n\n") }],
+  };
+}
+
+export async function generateIdeas(input) {
+  const { out, data } = await callClaude(buildIdeasRequest(input));
+  const clean = (s) => stripEmDashes(s).trim();
+  return {
+    ideas: (out.ideas || []).map((i) => ({
+      title: clean(i.title).slice(0, 90), pillar: i.pillar, purpose: i.purpose,
+      angle: clean(i.angle), opening: clean(i.opening), why: clean(i.why), bring: clean(i.bring),
+    })),
+    usage: data.usage || null,
   };
 }

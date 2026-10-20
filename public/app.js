@@ -116,7 +116,7 @@ function renderColumns() {
         <h2>${status} <span class="count">${total}</span></h2>
         ${cards.map((post) => `
           <a class="card" href="#editor/${post.id}">
-            <span class="badge ${post.platform === "X" ? "x" : "li"}">${escapeHtml(post.platform || "No platform")}</span>
+            <span class="badge ${post.platform === "X" ? "x" : post.platform ? "li" : "none"}">${escapeHtml(post.platform || "Idea")}</span>
             <strong>${escapeHtml(post.title || "Untitled")}</strong>
             ${post.text ? `<span class="snippet">${escapeHtml(TextKit.toPlain(post.text).slice(0, 140))}</span>` : ""}
             ${post.status === "Published" && post.publishedAt ? `<span class="when">${shortDate(post.publishedAt)}${post.stats?.impressions != null ? ` · ${compact(post.stats.impressions)} impressions` : ""}</span>` : ""}
@@ -656,6 +656,168 @@ function renderWriterResult(r) {
   }));
 }
 
+// ---------- Ideas (inspiration engine) ----------
+
+const ideasState = (() => {
+  try { return JSON.parse(sessionStorage.getItem("ideasState")) || {}; } catch { return {}; }
+})();
+function rememberIdeas() {
+  try { sessionStorage.setItem("ideasState", JSON.stringify(ideasState)); } catch {}
+}
+
+const PURPOSE_LABELS = { view: "Sharing a view", "how-to": "How-to", built: "Built something", story: "Story", milestone: "Milestone" };
+
+// Saved ideas live in Notion as posts with status Idea; their notes use these labeled lines.
+function ideaNotes(idea) {
+  return [
+    `Angle: ${idea.angle}`,
+    `Opening: ${idea.opening.replace(/\n/g, " / ")}`,
+    `Purpose: ${idea.purpose}`,
+    `Pillar: ${idea.pillar}`,
+    idea.bring ? `Bring: ${idea.bring}` : "",
+  ].filter(Boolean).join("\n");
+}
+function readIdeaNotes(post) {
+  const get = (label) => (post.text.match(new RegExp(`^${label}: (.*)$`, "m")) || [])[1] || "";
+  return { title: post.title, angle: get("Angle") || post.text, opening: get("Opening").replace(/ \/ /g, "\n"), purpose: get("Purpose"), bring: get("Bring") };
+}
+
+// Hands an idea to the Writer, ready to draft.
+function writeIdea(idea) {
+  writerState.form = {
+    idea: [idea.title, idea.angle, idea.opening ? `Possible opening:\n${idea.opening}` : ""].filter(Boolean).join("\n\n"),
+    purpose: PURPOSE_LABELS[idea.purpose] ? idea.purpose : "",
+    facts: idea.bring ? `[Add this before drafting: ${idea.bring}]` : "",
+    platforms: ["LinkedIn", "X"],
+  };
+  delete writerState.result;
+  rememberWriter();
+  location.hash = "#writer";
+}
+
+async function showIdeas() {
+  const form = ideasState.form || { pillar: "", nudge: "" };
+  content.innerHTML = `
+    <h1>Ideas</h1>
+    <p class="muted" id="i-status">Fresh post ideas from your content pillars, your point of view and what has worked for you. Save the good ones, or send one straight to the Writer.</p>
+    <section class="idea-form">
+      <label>Pillar
+        <select id="i-pillar"><option value="">Any pillar</option></select>
+      </label>
+      <label class="grow">Nudge (optional)
+        <input id="i-nudge" type="text" maxlength="1000" placeholder="Something on your mind today, e.g. month-end close, a tool you tried, a question someone asked" value="${escapeHtml(form.nudge)}" />
+      </label>
+      <button type="button" id="i-go">Give me ideas</button>
+    </section>
+    <p class="error" id="i-error" hidden></p>
+    <div class="idea-grid" id="i-results"></div>
+    <h2>Saved ideas</h2>
+    <p class="muted" id="i-saved-status">Loading...</p>
+    <div class="idea-grid" id="i-saved"></div>`;
+
+  const $ = (sel) => content.querySelector(sel);
+  api("GET", "/api/ideas/pillars").then((s) => {
+    $("#i-pillar").insertAdjacentHTML("beforeend", s.pillars.map((p) =>
+      `<option value="${escapeHtml(p)}" ${p === form.pillar ? "selected" : ""}>${escapeHtml(p)}</option>`).join(""));
+    if (!s.connected) $("#i-status").innerHTML = `<span class="error">Ideas need the Claude connection.</span> Add <code>ANTHROPIC_API_KEY</code> in cPanel.`;
+  }).catch(() => {});
+
+  const readForm = () => ({ pillar: $("#i-pillar").value, nudge: $("#i-nudge").value });
+  ["#i-pillar", "#i-nudge"].forEach((sel) => $(sel).addEventListener("input", () => { ideasState.form = readForm(); rememberIdeas(); }));
+
+  renderIdeaResults();
+  renderSavedIdeas();
+
+  $("#i-go").addEventListener("click", async () => {
+    const f = readForm();
+    ideasState.form = f;
+    const button = $("#i-go");
+    const errorBox = $("#i-error");
+    errorBox.hidden = true;
+    button.disabled = true;
+    button.textContent = "Thinking... (about 30 seconds)";
+    try {
+      const result = await api("POST", "/api/ideas/generate", { ...f, count: 8 });
+      ideasState.results = result.ideas;
+      rememberIdeas();
+      renderIdeaResults();
+    } catch (error) {
+      errorBox.textContent = error.message;
+      errorBox.hidden = false;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Give me ideas";
+    }
+  });
+}
+
+function ideaCard(idea, actions) {
+  return `
+    <article class="idea-card">
+      <div class="idea-tags">
+        ${idea.pillar ? `<span class="chip">${escapeHtml(idea.pillar)}</span>` : ""}
+        ${PURPOSE_LABELS[idea.purpose] ? `<span class="chip soft">${PURPOSE_LABELS[idea.purpose]}</span>` : ""}
+      </div>
+      <h3>${escapeHtml(idea.title)}</h3>
+      ${idea.opening ? `<blockquote>${escapeHtml(idea.opening)}</blockquote>` : ""}
+      <p>${escapeHtml(idea.angle)}</p>
+      ${idea.why ? `<p class="muted small">Why now: ${escapeHtml(idea.why)}</p>` : ""}
+      ${idea.bring ? `<p class="bring"><strong>You bring:</strong> ${escapeHtml(idea.bring)}</p>` : ""}
+      <div class="idea-actions">${actions}</div>
+    </article>`;
+}
+
+function renderIdeaResults() {
+  const box = document.getElementById("i-results");
+  if (!box) return;
+  const ideas = ideasState.results || [];
+  box.innerHTML = ideas.map((idea, i) => ideaCard(idea, `
+    <button type="button" data-write="${i}">Write it</button>
+    <button type="button" class="secondary" data-keep="${i}" ${idea.saved ? "disabled" : ""}>${idea.saved ? "Saved" : "Save idea"}</button>
+    <button type="button" class="ghost" data-drop="${i}">Not for me</button>`)).join("");
+
+  box.querySelectorAll("[data-write]").forEach((b) => b.addEventListener("click", () => writeIdea(ideas[Number(b.dataset.write)])));
+  box.querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", () => {
+    ideas.splice(Number(b.dataset.drop), 1);
+    rememberIdeas();
+    renderIdeaResults();
+  }));
+  box.querySelectorAll("[data-keep]").forEach((b) => b.addEventListener("click", async () => {
+    const idea = ideas[Number(b.dataset.keep)];
+    b.disabled = true;
+    b.textContent = "Saving...";
+    try {
+      await api("POST", "/api/posts", { title: idea.title, status: "Idea", platform: null, text: ideaNotes(idea) });
+      idea.saved = true;
+      rememberIdeas();
+      posts = null;
+      renderIdeaResults();
+      renderSavedIdeas();
+    } catch (error) {
+      b.disabled = false;
+      b.textContent = error.message;
+    }
+  }));
+}
+
+async function renderSavedIdeas() {
+  const box = document.getElementById("i-saved");
+  const status = document.getElementById("i-saved-status");
+  if (!box) return;
+  try {
+    const saved = (await loadPosts(true)).filter((p) => p.status === "Idea");
+    if (!document.getElementById("i-saved")) return;
+    status.textContent = saved.length ? "These also appear in the Idea column of the Content Board." : "No saved ideas yet.";
+    box.innerHTML = saved.map((p) => ideaCard(readIdeaNotes(p), `
+      <button type="button" data-write-saved="${p.id}">Write it</button>
+      <a class="button secondary" href="#editor/${p.id}">Open</a>`)).join("");
+    box.querySelectorAll("[data-write-saved]").forEach((b) => b.addEventListener("click", () =>
+      writeIdea(readIdeaNotes(saved.find((p) => p.id === b.dataset.writeSaved)))));
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
 // ---------- Import (one-time loading of past posts) ----------
 
 function showImport() {
@@ -688,7 +850,6 @@ function showImport() {
 // ---------- Sections and navigation ----------
 
 const placeholders = {
-  ideas:     { title: "Ideas",         text: "Your idea inbox." },
   swipes:    { title: "Swipe Library", text: "Posts you've saved because you like them." },
   calendar:  { title: "Calendar",      text: "What's going out, and when." },
   analytics: { title: "Analytics",     text: "How each post performed." },
@@ -705,6 +866,7 @@ function show() {
   if (section === "editor") return showEditor(id);
   if (section === "import") return showImport();
   if (section === "writer") return showWriter();
+  if (section === "ideas") return showIdeas();
   if (placeholders[section]) {
     content.innerHTML = `<h1>${placeholders[section].title}</h1><p class="muted">${placeholders[section].text} Not built yet.</p>`;
     return;
